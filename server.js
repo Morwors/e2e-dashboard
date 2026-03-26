@@ -29,11 +29,15 @@ if (!fs.existsSync(RUNS_FILE)) {
 app.use(cors());
 app.use(express.json());
 
+// Serve Playwright HTML reports (per-run) — BEFORE the dashboard static
+// so /reports/* is never caught by the SPA catch-all
+app.use('/reports', express.static(REPORTS_DIR, {
+  index: 'index.html',
+  fallthrough: false,   // return 404 instead of falling through to next middleware
+}));
+
 // Serve dashboard frontend
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Serve Playwright HTML reports (per-run)
-app.use('/reports', express.static(REPORTS_DIR));
 
 // ── State ────────────────────────────────────────────────────────────
 let currentStatus = 'idle';   // 'idle' | 'running'
@@ -232,8 +236,12 @@ function flatCount(suites, projects) {
   }
 }
 
-// ── Catch-all: serve index.html for SPA ──────────────────────────────
-app.get('*', (_req, res) => {
+// ── Catch-all: serve index.html for SPA (only non-API, non-report routes) ─
+app.get('*', (req, res) => {
+  // Don't serve index.html for /reports/* — those should 404 if not found
+  if (req.path.startsWith('/reports/')) {
+    return res.status(404).json({ error: 'Report not found' });
+  }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
