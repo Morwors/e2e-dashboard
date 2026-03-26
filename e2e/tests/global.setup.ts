@@ -2,11 +2,10 @@
  * Global setup — runs once before admin / store / e2e projects.
  *
  * Steps:
- *  1. Register a fresh test admin account via API
- *  2. Login to get JWT token
- *  3. Create a test company
- *  4. Save auth state for browser-based tests
- *  5. Write setup-state.json for fixture consumption
+ *  1. Get a demo account (verified, with company)
+ *  2. Fetch user info and company data
+ *  3. Save auth state for browser-based tests
+ *  4. Write setup-state.json for fixture consumption
  */
 
 import { test as setup, request } from '@playwright/test';
@@ -31,148 +30,83 @@ setup('authenticate and seed test data', async ({ }) => {
   const ctx = await request.newContext({ baseURL: URLS.api });
   const api = new ApiClient(ctx, URLS.api);
 
-  // 1. Register test admin
-  const email = uniqueEmail('admin');
-  console.log(`[setup] Registering test admin: ${email}`);
-
-  const regResult = await api.register({
-    firstName: TEST_ADMIN.firstName,
-    lastName: TEST_ADMIN.lastName,
-    email,
-    password: TEST_ADMIN.password,
-    phone: TEST_ADMIN.phone,
-  });
-
-  // If the email is already taken (re-run), try with a different one
-  if (regResult.status === 400) {
-    console.log('[setup] Registration conflict, trying alternate email...');
-    const altEmail = uniqueEmail('admin2');
-    const altReg = await api.register({
-      firstName: TEST_ADMIN.firstName,
-      lastName: TEST_ADMIN.lastName,
-      email: altEmail,
-      password: TEST_ADMIN.password,
-      phone: `+1555${Date.now().toString().slice(-7)}`,
-    });
-    if (altReg.status >= 400) {
-      // Fall back to demo account which is pre-verified
-      console.log('[setup] Registration failed, falling back to demo account');
-      const demo = await api.createDemo();
-      if (demo.status !== 200) {
-        throw new Error(`Demo account creation failed: ${JSON.stringify(demo.body)}`);
-      }
-
-      // Demo account comes with a company already
-      const meResult = await api.me();
-      const user = meResult.body?.user;
-      const companies = await api.getCompanies();
-      const companyId = companies.body?.companies?.[0]?._id || companies.body?.[0]?._id || '';
-
-      const state = {
-        token: demo.body.token,
-        email: user?.email || 'demo@example.com',
-        companyId,
-        userId: user?._id || '',
-      };
-
-      fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
-      await saveAdminStorageState(state.token);
-      await ctx.dispose();
-      return;
-    }
+  // 1. Get demo account (pre-verified, with company and permissions)
+  console.log('[setup] Creating demo account...');
+  const demo = await api.createDemo();
+  if (demo.status !== 200 || !demo.body?.token) {
+    throw new Error(`Demo account creation failed: ${JSON.stringify(demo.body)}`);
   }
+  const token = demo.body.token;
+  console.log('[setup] Demo token obtained');
 
-  // 2. Login
-  //    NOTE: newly registered users may not be verified. The backend
-  //    returns 403 for unverified users. If that happens, fall back to demo.
-  console.log('[setup] Logging in...');
-  const loginResult = await api.login(
-    regResult.status === 400 ? uniqueEmail('admin2') : email,
-    TEST_ADMIN.password,
-  );
-
-  if (loginResult.status === 403 || loginResult.status === 401) {
-    console.log('[setup] Login failed (likely unverified), falling back to demo account');
-    const demo = await api.createDemo();
-    if (demo.status !== 200) {
-      throw new Error(`Demo account creation failed: ${JSON.stringify(demo.body)}`);
-    }
-
-    const meResult = await api.me();
-    const user = meResult.body?.user;
-    const companies = await api.getCompanies();
-    const companyId = companies.body?.companies?.[0]?._id || companies.body?.[0]?._id || '';
-
-    const state = {
-      token: demo.body.token,
-      email: user?.email || 'demo@example.com',
-      companyId,
-      userId: user?._id || '',
-    };
-
-    fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
-    await saveAdminStorageState(state.token);
-    await ctx.dispose();
-    return;
-  }
-
-  if (loginResult.status !== 200) {
-    throw new Error(`Login failed: ${JSON.stringify(loginResult.body)}`);
-  }
-
-  const token = loginResult.body.token;
-
-  // 3. Get user info
+  // 2. Get user info
   const meResult = await api.me();
   const user = meResult.body?.user;
+  if (!user) {
+    throw new Error(`Failed to get user info: ${JSON.stringify(meResult.body)}`);
+  }
+  console.log(`[setup] User: ${user.firstName} ${user.lastName} (${user.email})`);
 
-  // 4. Create test company
-  console.log('[setup] Creating test company...');
-  const companyResult = await api.createCompany(
-    TEST_COMPANY.name,
-    TEST_COMPANY.description,
-  );
-
+  // 3. Get company data (demo endpoint creates a company automatically)
+  const companiesResult = await api.getCompanies();
+  let company = null;
   let companyId = '';
-  if (companyResult.status === 201 || companyResult.status === 200) {
-    companyId = companyResult.body?.insertedId || companyResult.body?._id || '';
+
+  // The API returns { data: [...] } or { companies: [...] } or just [...]
+  const companiesList =
+    companiesResult.body?.data ||
+    companiesResult.body?.companies ||
+    (Array.isArray(companiesResult.body) ? companiesResult.body : []);
+
+  if (companiesList.length > 0) {
+    company = companiesList[0];
+    companyId = company._id;
+    console.log(`[setup] Company: ${company.name} (${companyId})`);
   } else {
-    // Company might already exist — fetch companies
-    const companies = await api.getCompanies();
-    companyId = companies.body?.companies?.[0]?._id || companies.body?.[0]?._id || '';
+    console.warn('[setup] No company found for demo account');
   }
 
-  console.log(`[setup] Company ID: ${companyId}`);
-
-  // 5. Save state
+  // 4. Save state (includes full company object for localStorage injection)
   const state = {
     token,
-    email: regResult.status === 400 ? '' : email,
+    email: user.email,
     companyId,
-    userId: user?._id || '',
+    userId: user._id,
+    company, // Full company object for selected_company localStorage
   };
 
   fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
-  await saveAdminStorageState(token);
+  await saveAdminStorageState(token, company);
 
   console.log('[setup] ✅ Setup complete');
   await ctx.dispose();
 });
 
 /**
- * Save a minimal storage state file that sets the JWT token in localStorage.
- * Angular's AuthService uses 'auth_token' as the key (not 'token').
+ * Save storage state file that sets:
+ * - auth_token: JWT token (Angular's AuthService key)
+ * - auth_remember: "true" (use localStorage not sessionStorage)
+ * - selected_company: JSON company object (Angular's CompanyStore key)
  */
-async function saveAdminStorageState(token: string) {
+async function saveAdminStorageState(token: string, company: any) {
+  const localStorage: Array<{ name: string; value: string }> = [
+    { name: 'auth_token', value: token },
+    { name: 'auth_remember', value: 'true' },
+  ];
+
+  if (company) {
+    localStorage.push({
+      name: 'selected_company',
+      value: JSON.stringify(company),
+    });
+  }
+
   const storageState = {
     cookies: [],
     origins: [
       {
         origin: URLS.admin,
-        localStorage: [
-          { name: 'auth_token', value: token },
-          { name: 'auth_remember', value: 'true' },
-        ],
+        localStorage,
       },
     ],
   };

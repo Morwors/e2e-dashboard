@@ -2,9 +2,9 @@
  * Auth fixture — extends Playwright test with an authenticated admin page.
  *
  * Provides:
- * - `adminPage`: a Page with JWT token already in localStorage
+ * - `adminPage`: a Page with JWT + company in localStorage (ready for admin panel)
  * - `apiClient`: an ApiClient instance with auth token set
- * - `testData`: resolved test data (email, companyId, etc.)
+ * - `testState`: resolved test data from setup (token, companyId, company, etc.)
  */
 
 import { test as base, expect, BrowserContext, Page } from '@playwright/test';
@@ -19,6 +19,7 @@ export interface SetupState {
   email: string;
   companyId: string;
   userId: string;
+  company: any; // Full company object for localStorage
 }
 
 const STATE_PATH = path.resolve(__dirname, '../auth/setup-state.json');
@@ -40,7 +41,7 @@ function readSetupState(): SetupState | null {
 
 /** Custom test fixture type */
 type AuthFixtures = {
-  /** Pre-authenticated admin Page (has JWT in localStorage) */
+  /** Pre-authenticated admin Page (has JWT + company in localStorage) */
   adminPage: Page;
   /** API client with token set */
   apiClient: ApiClient;
@@ -66,7 +67,7 @@ export const test = base.extend<AuthFixtures>({
   },
 
   adminPage: async ({ browser, testState }, use) => {
-    // Create a new context with stored auth state if it exists
+    // Create context with storageState (has auth_token + selected_company)
     let context: BrowserContext;
     if (fs.existsSync(ADMIN_STORAGE_PATH)) {
       context = await browser.newContext({
@@ -79,29 +80,48 @@ export const test = base.extend<AuthFixtures>({
 
     const page = await context.newPage();
 
-    // Use the demo token URL parameter approach — Angular's checkForDemoToken()
-    // reads ?demo=true&token=<jwt> from the URL and authenticates automatically.
-    // This is the most reliable auth method as it goes through the app's own flow.
-    await page.goto(
-      `${URLS.admin}/company/select?demo=true&token=${encodeURIComponent(testState.token)}`,
-      { waitUntil: 'networkidle' },
-    );
+    // Navigate to admin — Angular will read auth_token + selected_company from localStorage
+    await page.goto(URLS.admin + '/dashboard', { waitUntil: 'domcontentloaded' });
 
-    // Wait for Angular to process the demo token and redirect
+    // Wait for Angular to boot and process auth
     await page.waitForTimeout(2000);
 
-    // If we're still on login, fall back to manual localStorage injection
+    // Check if we're on login page (storageState didn't work)
     const url = page.url();
     if (url.includes('/auth/login') || url.includes('/login')) {
-      // Angular's auth service uses 'auth_token' key (not 'token')
-      await page.evaluate((token: string) => {
-        localStorage.setItem('auth_token', token);
-        localStorage.setItem('auth_remember', 'true');
-      }, testState.token);
+      // Manual fallback: inject auth via demo URL params
+      await page.goto(
+        `${URLS.admin}/company/select?demo=true&token=${encodeURIComponent(testState.token)}`,
+        { waitUntil: 'networkidle' },
+      );
+      await page.waitForTimeout(2000);
 
-      // Reload so Angular picks up the token
-      await page.goto(URLS.admin + '/company/select', { waitUntil: 'networkidle' });
-      await page.waitForTimeout(1000);
+      // Also set selected_company if we have it
+      if (testState.company) {
+        await page.evaluate((company: any) => {
+          localStorage.setItem('selected_company', JSON.stringify(company));
+        }, testState.company);
+      }
+    }
+
+    // If on company/select, click the first company to select it
+    if (page.url().includes('/company/select')) {
+      // Try clicking the first company card/button
+      const companyCard = page.locator('[class*="company"], [class*="card"], button, a').filter({ hasText: /select|choose|open/i }).first();
+      const hasCard = await companyCard.isVisible({ timeout: 3000 }).catch(() => false);
+      if (hasCard) {
+        await companyCard.click();
+        await page.waitForTimeout(1000);
+      } else {
+        // Just inject the company and navigate
+        if (testState.company) {
+          await page.evaluate((company: any) => {
+            localStorage.setItem('selected_company', JSON.stringify(company));
+          }, testState.company);
+        }
+        await page.goto(URLS.admin + '/dashboard', { waitUntil: 'domcontentloaded' });
+        await page.waitForTimeout(1000);
+      }
     }
 
     await use(page);
