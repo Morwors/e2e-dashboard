@@ -80,11 +80,32 @@ export const test = base.extend<AuthFixtures>({
 
     const page = await context.newPage();
 
-    // Inject JWT token into localStorage before navigating
-    await page.goto(URLS.admin + '/auth/login');
-    await page.evaluate((token: string) => {
-      localStorage.setItem('token', token);
-    }, testState.token);
+    // Navigate to admin root — Angular will read localStorage.token on init.
+    // If storageState already set the token, the auth guard should let us through.
+    // If not, we inject the token and reload.
+    await page.goto(URLS.admin, { waitUntil: 'domcontentloaded' });
+
+    // Check if we landed on login (token not picked up from storageState)
+    const url = page.url();
+    if (url.includes('/auth/login') || url.includes('/login')) {
+      // storageState didn't work — inject token manually and reload
+      await page.evaluate((token: string) => {
+        localStorage.setItem('token', token);
+      }, testState.token);
+
+      // Reload so Angular picks up the token on fresh init
+      await page.reload({ waitUntil: 'domcontentloaded' });
+
+      // Wait a moment for Angular to process the auth guard
+      await page.waitForTimeout(1000);
+
+      // If still on login, try navigating directly to dashboard
+      const urlAfterReload = page.url();
+      if (urlAfterReload.includes('/auth/login') || urlAfterReload.includes('/login')) {
+        await page.goto(URLS.admin + '/dashboard', { waitUntil: 'domcontentloaded' });
+        await page.waitForTimeout(1000);
+      }
+    }
 
     await use(page);
     await context.close();
