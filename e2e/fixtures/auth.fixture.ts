@@ -26,7 +26,6 @@ const ADMIN_STORAGE_PATH = path.resolve(__dirname, '../auth/admin.json');
 
 /**
  * Read setup state saved by global.setup.ts.
- * Falls back to defaults if file doesn't exist (tests will create accounts on the fly).
  */
 function readSetupState(): SetupState | null {
   try {
@@ -80,31 +79,29 @@ export const test = base.extend<AuthFixtures>({
 
     const page = await context.newPage();
 
-    // Navigate to admin root — Angular will read localStorage.token on init.
-    // If storageState already set the token, the auth guard should let us through.
-    // If not, we inject the token and reload.
-    await page.goto(URLS.admin, { waitUntil: 'domcontentloaded' });
+    // Use the demo token URL parameter approach — Angular's checkForDemoToken()
+    // reads ?demo=true&token=<jwt> from the URL and authenticates automatically.
+    // This is the most reliable auth method as it goes through the app's own flow.
+    await page.goto(
+      `${URLS.admin}/company/select?demo=true&token=${encodeURIComponent(testState.token)}`,
+      { waitUntil: 'networkidle' },
+    );
 
-    // Check if we landed on login (token not picked up from storageState)
+    // Wait for Angular to process the demo token and redirect
+    await page.waitForTimeout(2000);
+
+    // If we're still on login, fall back to manual localStorage injection
     const url = page.url();
     if (url.includes('/auth/login') || url.includes('/login')) {
-      // storageState didn't work — inject token manually and reload
+      // Angular's auth service uses 'auth_token' key (not 'token')
       await page.evaluate((token: string) => {
-        localStorage.setItem('token', token);
+        localStorage.setItem('auth_token', token);
+        localStorage.setItem('auth_remember', 'true');
       }, testState.token);
 
-      // Reload so Angular picks up the token on fresh init
-      await page.reload({ waitUntil: 'domcontentloaded' });
-
-      // Wait a moment for Angular to process the auth guard
+      // Reload so Angular picks up the token
+      await page.goto(URLS.admin + '/company/select', { waitUntil: 'networkidle' });
       await page.waitForTimeout(1000);
-
-      // If still on login, try navigating directly to dashboard
-      const urlAfterReload = page.url();
-      if (urlAfterReload.includes('/auth/login') || urlAfterReload.includes('/login')) {
-        await page.goto(URLS.admin + '/dashboard', { waitUntil: 'domcontentloaded' });
-        await page.waitForTimeout(1000);
-      }
     }
 
     await use(page);

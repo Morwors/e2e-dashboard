@@ -160,8 +160,8 @@ setup('authenticate and seed test data', async ({ }) => {
 });
 
 /**
- * Save a minimal storage state file that sets the JWT token as a cookie
- * so admin/store projects can reuse it.
+ * Save a minimal storage state file that sets the JWT token in localStorage.
+ * Angular's AuthService uses 'auth_token' as the key (not 'token').
  */
 async function saveAdminStorageState(token: string) {
   const storageState = {
@@ -170,7 +170,8 @@ async function saveAdminStorageState(token: string) {
       {
         origin: URLS.admin,
         localStorage: [
-          { name: 'token', value: token },
+          { name: 'auth_token', value: token },
+          { name: 'auth_remember', value: 'true' },
         ],
       },
     ],
