@@ -53,7 +53,7 @@ export function testEventData(suffix = '') {
     description: 'Automated test event for E2E testing',
     location: 'E2E Test Venue, Test City',
     website: 'https://e2e-test.ticketseat.io',
-    category: 'Music',
+    category: 'music',
     dates: [futureDate1.toISOString(), futureDate2.toISOString()],
     room: '[[]]',
   };

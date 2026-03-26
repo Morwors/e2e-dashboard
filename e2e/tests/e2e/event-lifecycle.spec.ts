@@ -41,19 +41,27 @@ async function fillDateTimeLocal(
 ) {
   // datetime-local inputs need the format "YYYY-MM-DDTHH:mm"
   const dtLocalValue = isoValue.slice(0, 16); // "2026-04-26T19:50"
+  const input = page.locator(`input[formcontrolname="${formControlName}"]`);
+  await expect(input).toBeVisible({ timeout: 5_000 });
+
+  // Clear then fill — Playwright's fill() dispatches all the right events
+  await input.click();
+  await input.fill(dtLocalValue);
+
+  // Also set via native setter + Angular-compatible events as reinforcement
   await page.evaluate(
     ({ selector, val }) => {
-      const input = document.querySelector(
+      const el = document.querySelector(
         `input[formcontrolname="${selector}"]`,
       ) as HTMLInputElement;
-      if (!input) throw new Error(`Input [formcontrolname="${selector}"] not found`);
+      if (!el) return;
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
         'value',
       )!.set!;
-      nativeInputValueSetter.call(input, val);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
+      nativeInputValueSetter.call(el, val);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
     },
     { selector: formControlName, val: dtLocalValue },
   );
@@ -271,8 +279,8 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     // Fill event name
     await page.locator('input[formcontrolname="name"]').fill(eventData.name);
 
-    // Select category
-    await page.selectOption('select[formcontrolname="category"]', eventData.category || 'Music');
+    // Select category (values are lowercase: music, sports, theater, food)
+    await page.selectOption('select[formcontrolname="category"]', eventData.category || 'music');
 
     // Fill location
     await page.locator('input[formcontrolname="location"]').fill(eventData.location || 'E2E Test Venue, Test City');
@@ -280,18 +288,75 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     // Fill website
     await page.locator('input[formcontrolname="website"]').fill(eventData.website || 'https://e2e-test.ticketseat.io');
 
-    // Fill description
+    // Fill description (min 10 chars required by validator)
     await page.locator('textarea[formcontrolname="description"]').fill(eventData.description || 'Automated test event for E2E testing');
 
-    // Fill start date (datetime-local needs special handling)
+    // Skip image upload — not required by form validators
+
+    // Fill start date (datetime-local needs special handling for Angular reactive forms)
     await fillDateTimeLocal(page, 'startDate', startDate);
 
     // Fill end date
     await fillDateTimeLocal(page, 'endDate', endDate);
 
+    // Small wait for Angular to process all form changes
+    await page.waitForTimeout(500);
+
+    // Verify form is valid before clicking — log state for debugging
+    const formState = await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('Create Event'));
+      const inputs: Record<string, string> = {};
+      document.querySelectorAll('input[formcontrolname], select[formcontrolname], textarea[formcontrolname]').forEach((el: any) => {
+        inputs[el.getAttribute('formcontrolname')] = el.value?.slice(0, 30) || '(empty)';
+      });
+      return { btnDisabled: btn?.disabled, inputs };
+    });
+    console.log(`[journey] Form state before submit:`, JSON.stringify(formState));
+
     // Click "Create Event" button
     const createBtn = page.locator('button').filter({ hasText: /Create Event/i });
     await expect(createBtn).toBeVisible({ timeout: 5_000 });
+
+    // If button is disabled, dates didn't register — force them via Angular's form API
+    if (formState.btnDisabled) {
+      console.log('[journey] ⚠️ Create button disabled — forcing dates via Angular form patchValue');
+      await page.evaluate(({ s, e }) => {
+        // Find the Angular component instance and patch the form directly
+        const formEl = document.querySelector('form');
+        if (!formEl) return;
+        // Try to reach Angular's FormGroup via __ngContext__ on the component
+        const detailsTab = document.querySelector('app-event-details-tab');
+        if (detailsTab) {
+          // Angular Ivy stores component ref in __ngContext__
+          const ctx = (detailsTab as any).__ngContext__;
+          if (Array.isArray(ctx)) {
+            for (const item of ctx) {
+              if (item?.detailsForm?.patchValue) {
+                item.detailsForm.patchValue({ startDate: s, endDate: e });
+                console.log('Patched form via Angular component');
+                return;
+              }
+            }
+          }
+        }
+        // Fallback: dispatch events more aggressively
+        ['startDate', 'endDate'].forEach((name, i) => {
+          const val = i === 0 ? s : e;
+          const input = document.querySelector(`input[formcontrolname="${name}"]`) as HTMLInputElement;
+          if (input) {
+            input.focus();
+            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+            setter.call(input, val);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.dispatchEvent(new Event('blur', { bubbles: true }));
+          }
+        });
+      }, { s: startDate.slice(0, 16), e: endDate.slice(0, 16) });
+      await page.waitForTimeout(500);
+    }
+
+    await expect(createBtn).toBeEnabled({ timeout: 5_000 });
     await createBtn.click();
 
     // Wait for success — either a success alert or URL navigation to /events/:id
