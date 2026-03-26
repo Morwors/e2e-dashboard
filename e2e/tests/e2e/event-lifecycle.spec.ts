@@ -96,6 +96,7 @@ test.describe.serial('Full User Journey — End-to-End', () => {
   let shopId: string;
   let promoCode: string;
   let userEmail: string;
+  let userPassword: string;
 
   // ── Step 1: Register via UI ────────────────────────────────────
 
@@ -106,16 +107,17 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     // Verify page loaded
     await expect(page.locator('h2')).toContainText('Create account');
 
-    const email = uniqueEmail('journey');
+    userEmail = uniqueEmail('journey');
+    userPassword = TEST_ADMIN.password;
     const phone = uniquePhone();
 
     // Fill all fields
     await page.locator('#firstName').fill('Journey');
     await page.locator('#lastName').fill('Tester');
-    await page.locator('#email').fill(email);
+    await page.locator('#email').fill(userEmail);
     await page.locator('#phone').fill(phone);
-    await page.locator('#password').fill(TEST_ADMIN.password);
-    await page.locator('#confirmPassword').fill(TEST_ADMIN.password);
+    await page.locator('#password').fill(userPassword);
+    await page.locator('#confirmPassword').fill(userPassword);
 
     // Submit button should be enabled
     const submitBtn = page.locator('button[type="submit"]');
@@ -135,66 +137,110 @@ test.describe.serial('Full User Journey — End-to-End', () => {
       expect(hasError, `Registration failed unexpectedly: ${errorText}`).toBe(false);
     }
 
-    console.log('[journey] ✅ Registration form submitted successfully');
+    console.log(`[journey] ✅ Registration submitted for ${userEmail}`);
   });
 
-  // ── Step 2: Setup demo account (since we can't verify email) ──
+  // ── Step 2: Login attempt (unverified) — expect error ─────────
 
-  test('2. Setup verified account via demo API', async ({ request }) => {
+  test('2. Login fails when not verified', async ({ page }) => {
+    expect(userEmail).toBeTruthy();
+    expect(userPassword).toBeTruthy();
+
+    await page.goto(`${URLS.admin}${ADMIN_ROUTES.login}`);
+    await waitForAngularReady(page);
+
+    // Fill login form
+    await page.locator('#email').fill(userEmail);
+    await page.locator('#password').fill(userPassword);
+
+    // Click sign in
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeEnabled();
+    await submitBtn.click();
+
+    // Expect error banner — backend returns 403 "User not verified"
+    // but Angular auth store maps 403 to "Your account has been disabled"
+    const errorBanner = page.locator('.bg-red-50, .bg-red-900\\/20').first();
+    await expect(errorBanner).toBeVisible({ timeout: 10_000 });
+
+    // Verify "Sign in failed" heading is shown (confirms the error is from login, not a random error)
+    const errorHeading = errorBanner.locator('text=Sign in failed');
+    await expect(errorHeading).toBeVisible();
+
+    // The error message should mention "disabled" (Angular's mapping of 403)
+    const errorText = await errorBanner.textContent();
+    console.log(`[journey] Login error text: ${errorText?.trim()}`);
+    expect(
+      errorText?.toLowerCase().includes('disabled') || errorText?.toLowerCase().includes('not verified'),
+      `Expected verification/disabled error, got: ${errorText}`,
+    ).toBe(true);
+
+    console.log(`[journey] ✅ Login correctly rejected — user not verified (403)`);
+  });
+
+  // ── Step 3: Verify account via API ─────────────────────────────
+
+  test('3. Verify account via API and login', async ({ page, request }) => {
+    expect(userEmail).toBeTruthy();
+    expect(userPassword).toBeTruthy();
+
+    // Get verification token via dev-only endpoint
+    const tokenRes = await request.get(
+      `${URLS.api}/user/test-verify-token/${encodeURIComponent(userEmail)}`,
+    );
+    expect(tokenRes.ok(), 'Should get verification token').toBe(true);
+    const { token: verifyToken } = await tokenRes.json();
+    expect(verifyToken).toBeTruthy();
+
+    // Verify the account
+    const verifyRes = await request.get(`${URLS.api}/user/verify/${verifyToken}`);
+    expect(verifyRes.ok(), 'Verification should succeed').toBe(true);
+
+    console.log(`[journey] ✅ Account verified via API`);
+
+    // Now login via UI — should succeed this time
+    await page.goto(`${URLS.admin}${ADMIN_ROUTES.login}`);
+    await waitForAngularReady(page);
+
+    await page.locator('#email').fill(userEmail);
+    await page.locator('#password').fill(userPassword);
+
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeEnabled();
+    await submitBtn.click();
+
+    // Should redirect away from login page (to company/select or dashboard)
+    await page.waitForURL(/\/(company\/select|dashboard|events)/, { timeout: 15_000 });
+    const url = page.url();
+    expect(url).not.toContain('/auth/login');
+
+    // Extract token from localStorage
+    const authToken = await page.evaluate(() => localStorage.getItem('auth_token'));
+    expect(authToken, 'Auth token should be in localStorage after login').toBeTruthy();
+    token = authToken!;
+
+    console.log(`[journey] ✅ Login successful after verification, on: ${url}`);
+  });
+
+  // ── Step 4: Setup company via demo (Stripe requires live account) ──
+
+  test('4. Setup company via demo API', async ({ request }) => {
+    expect(token).toBeTruthy();
+
+    // The registered user has no company — use demo endpoint to get one
+    // (Company creation requires Stripe integration which can't be E2E tested)
     api = new ApiClient(request, URLS.api);
     const demo = await api.createDemo();
     expect(demo.status).toBe(200);
     expect(demo.body.token).toBeTruthy();
 
+    // Use demo token for company access
     token = demo.body.token;
+    api.setToken(token);
 
-    // Verify we can fetch user info
     const me = await api.me();
     expect(me.status).toBe(200);
-    expect(me.body.user).toBeTruthy();
-    expect(me.body.user.email).toBeTruthy();
     userEmail = me.body.user.email;
-
-    console.log(`[journey] ✅ Demo account ready: ${userEmail}`);
-  });
-
-  // ── Step 3: Login via UI ───────────────────────────────────────
-
-  test('3. Login — inject auth token and verify access', async ({ page }) => {
-    expect(token).toBeTruthy();
-
-    // Go to login page first
-    await page.goto(`${URLS.admin}${ADMIN_ROUTES.login}`);
-    await waitForAngularReady(page);
-
-    // Inject auth token (demo accounts have no known password)
-    await page.evaluate((t: string) => {
-      localStorage.setItem('auth_token', t);
-      localStorage.setItem('auth_remember', 'true');
-    }, token);
-
-    // Navigate to company select / dashboard
-    await page.goto(`${URLS.admin}${ADMIN_ROUTES.companySelect}`);
-    await waitForAngularReady(page);
-
-    // Should NOT be on login page
-    const url = page.url();
-    expect(url).not.toContain('/auth/login');
-
-    // Should be on company select or dashboard
-    const validPage = url.includes('/company/select') || url.includes('/dashboard');
-    expect(validPage).toBe(true);
-
-    console.log(`[journey] ✅ Login successful, on: ${url}`);
-  });
-
-  // ── Step 4: Get company (demo already creates one) ─────────────
-
-  test('4. Select company', async ({ request }) => {
-    expect(token).toBeTruthy();
-
-    api = new ApiClient(request, URLS.api);
-    api.setToken(token);
 
     const companies = await api.getCompanies();
     expect(companies.status).toBe(200);
@@ -209,7 +255,7 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     companyId = companyObj._id;
     expect(companyId).toBeTruthy();
 
-    console.log(`[journey] ✅ Company: ${companyObj.name} (${companyId})`);
+    console.log(`[journey] ✅ Company ready: ${companyObj.name} (${companyId})`);
   });
 
   // ── Step 5: Verify billing/Stripe status ───────────────────────
