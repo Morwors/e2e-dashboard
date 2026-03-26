@@ -5,21 +5,21 @@
  * No `expect(x || true)` patterns. Every assertion must pass to succeed.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, request as apiRequest } from '@playwright/test';
 import { ApiClient } from '../../helpers/api-client';
 import { URLS, testEventData, testTicketData, TEST_RUN_ID } from '../../fixtures/test-data';
 import { waitForAngularReady } from '../../helpers/wait-helpers';
-import { fillStripeCheckout, submitStripeCheckout } from '../../helpers/stripe-helpers';
+
+// Shared state for serial tests
+let eventId: string;
+let ticketId: string;
+let shopId: string;
+let companyId: string;
 
 test.describe.serial('Store Purchase Flow', () => {
-  let eventId: string;
-  let ticketId: string;
-  let shopId: string;
-  let companyId: string;
-  let api: ApiClient;
-
-  test.beforeAll(async ({ request }) => {
-    api = new ApiClient(request, URLS.api);
+  test('setup: create event, ticket, and shop via API', async () => {
+    const ctx = await apiRequest.newContext({ baseURL: URLS.api });
+    const api = new ApiClient(ctx, URLS.api);
 
     // Create demo account
     const demo = await api.createDemo();
@@ -59,6 +59,8 @@ test.describe.serial('Store Purchase Flow', () => {
     expect(shopResult.status).toBeLessThan(300);
     shopId = shopResult.body?._id || shopResult.body?.insertedId;
     expect(shopId).toBeTruthy();
+
+    await ctx.dispose();
   });
 
   test('store page loads with event details', async ({ page }) => {

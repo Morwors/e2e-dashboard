@@ -4,20 +4,21 @@
  * Every assertion is meaningful. No `expect(x || true)` patterns.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, request as apiRequest } from '@playwright/test';
 import { ApiClient } from '../../helpers/api-client';
 import { URLS, testEventData, testTicketData, testPromoData, TEST_RUN_ID } from '../../fixtures/test-data';
 import { waitForAngularReady } from '../../helpers/wait-helpers';
 
-test.describe('Store Promo Codes', () => {
-  let eventId: string;
-  let ticketId: string;
-  let promoCode: string;
-  let companyId: string;
-  let api: ApiClient;
+// Shared state
+let eventId: string;
+let ticketId: string;
+let promoCode: string;
+let companyId: string;
 
-  test.beforeAll(async ({ request }) => {
-    api = new ApiClient(request, URLS.api);
+test.describe.serial('Store Promo Codes', () => {
+  test('setup: create event, ticket, shop, and promo code', async () => {
+    const ctx = await apiRequest.newContext({ baseURL: URLS.api });
+    const api = new ApiClient(ctx, URLS.api);
 
     // Create demo account + data
     const demo = await api.createDemo();
@@ -50,6 +51,8 @@ test.describe('Store Promo Codes', () => {
     const promoResult = await api.createPromoCode(companyId, promoData);
     expect(promoResult.status).toBeLessThan(300);
     promoCode = promoData.code;
+
+    await ctx.dispose();
   });
 
   test('store loads with event data for promo testing', async ({ page }) => {
@@ -75,7 +78,7 @@ test.describe('Store Promo Codes', () => {
     expect(body.discount).toBe(10);
   });
 
-  test('promo code API validation — nonexistent code returns 404', async ({ request }) => {
+  test('promo code API validation — nonexistent code returns error', async ({ request }) => {
     const res = await request.get(
       `${URLS.api}/promo/exists?code=NONEXISTENT_CODE_12345&eventId=${eventId}`,
     );

@@ -4,17 +4,19 @@
  * Every assertion is meaningful. No `expect(x || true)` or `>= 0` patterns.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, request as apiRequest } from '@playwright/test';
 import { ApiClient } from '../../helpers/api-client';
 import { URLS, testEventData, testTicketData, TEST_RUN_ID } from '../../fixtures/test-data';
 import { waitForAngularReady } from '../../helpers/wait-helpers';
 
-test.describe('Store Seat Selection', () => {
-  let eventId: string;
-  let ticketId: string;
+// Shared state
+let eventId: string;
+let ticketId: string;
 
-  test.beforeAll(async ({ request }) => {
-    const api = new ApiClient(request, URLS.api);
+test.describe.serial('Store Seat Selection', () => {
+  test('setup: create event, ticket, and shop', async () => {
+    const ctx = await apiRequest.newContext({ baseURL: URLS.api });
+    const api = new ApiClient(ctx, URLS.api);
 
     const demo = await api.createDemo();
     expect(demo.status).toBe(200);
@@ -40,6 +42,8 @@ test.describe('Store Seat Selection', () => {
       ticketIds: [ticketId],
       name: `E2E Seat Store ${TEST_RUN_ID}`,
     });
+
+    await ctx.dispose();
   });
 
   test('ticket selection page loads for valid ticket', async ({ page }) => {
@@ -67,7 +71,6 @@ test.describe('Store Seat Selection', () => {
       has: page.locator('svg'),
     }).first();
 
-    // At least one navigational element with an SVG (arrow) should exist
     const backLink = page.locator('a[href*="store"], button').filter({
       hasText: /back|return|←/i,
     }).first();
@@ -75,7 +78,7 @@ test.describe('Store Seat Selection', () => {
     const hasBack = await backBtn.isVisible().catch(() => false);
     const hasBackLink = await backLink.isVisible().catch(() => false);
 
-    // At minimum, clicking browser back should work, but UI should have a back element
+    // UI should have a back element
     expect(hasBack || hasBackLink).toBe(true);
   });
 
@@ -91,7 +94,7 @@ test.describe('Store Seat Selection', () => {
       bodyText!.toLowerCase().includes('not found') ||
       bodyText!.toLowerCase().includes('error') ||
       bodyText!.toLowerCase().includes('ticketseat') ||
-      page.url().includes('storeUrl') === false; // Redirected away
+      !page.url().includes('000000000000000000000000');
     expect(isErrorOrRedirect).toBe(true);
   });
 });
