@@ -1,7 +1,7 @@
 /**
  * Admin Dashboard Tests — verify the dashboard loads and shows key elements.
  *
- * These tests require authentication (depend on the setup project).
+ * Every assertion is meaningful. No soft checks that always pass.
  */
 
 import { test, expect } from '../../fixtures/auth.fixture';
@@ -13,59 +13,47 @@ test.describe('Admin Dashboard', () => {
     await adminPage.goto(ADMIN_ROUTES.dashboard);
     await waitForAngularReady(adminPage);
 
-    // Dashboard should load — check we're not on the login page
+    // Must be on dashboard — not login, not an error page
     const url = adminPage.url();
-    const onDashboardOrCompanySelect =
-      url.includes('/dashboard') || url.includes('/company/select');
-    expect(onDashboardOrCompanySelect).toBeTruthy();
+    expect(url).toContain('/dashboard');
   });
 
-  test('dashboard shows navigation sidebar', async ({ adminPage }) => {
+  test('dashboard shows navigation sidebar with main sections', async ({ adminPage }) => {
     await adminPage.goto(ADMIN_ROUTES.dashboard);
     await waitForAngularReady(adminPage);
 
-    // Wait for the page to settle
-    await adminPage.waitForTimeout(1000);
+    // Must be on dashboard
+    expect(adminPage.url()).toContain('/dashboard');
 
-    // If we're on company select, that's ok — means auth worked
-    if (adminPage.url().includes('/company/select')) {
-      return; // skip sidebar check if no company is selected
-    }
-
-    // The sidebar should have links to main sections
+    // Sidebar must exist and be visible
     const sidebar = adminPage.locator('aside, nav, [class*="sidebar"]').first();
-    const sidebarExists = await sidebar.isVisible().catch(() => false);
+    await expect(sidebar).toBeVisible({ timeout: 10_000 });
 
-    if (sidebarExists) {
-      // Check for key navigation items (text may vary)
-      const navTexts = ['Dashboard', 'Events', 'Employees', 'Settings'];
-      for (const text of navTexts) {
-        const link = sidebar.locator(`text=${text}`);
-        const visible = await link.isVisible().catch(() => false);
-        // At least some nav items should be present
-        if (visible) {
-          expect(visible).toBeTruthy();
-        }
-      }
+    // Must contain key navigation items
+    const requiredNavItems = ['Dashboard', 'Events'];
+    for (const text of requiredNavItems) {
+      const link = sidebar.locator(`text=${text}`).first();
+      await expect(link).toBeVisible();
     }
   });
 
-  test('dashboard displays company name', async ({ adminPage }) => {
+  test('dashboard displays header with company context', async ({ adminPage }) => {
     await adminPage.goto(ADMIN_ROUTES.dashboard);
     await waitForAngularReady(adminPage);
-    await adminPage.waitForTimeout(1000);
 
-    // Skip if on company select page
-    if (adminPage.url().includes('/company/select')) {
-      return;
-    }
+    expect(adminPage.url()).toContain('/dashboard');
 
-    // Look for any text that might be a company name in the header/nav
-    const header = adminPage.locator('header, nav').first();
+    // Header must be visible
+    const header = adminPage.locator('header').first();
     await expect(header).toBeVisible();
+
+    // Header should contain at least some text (company name, user info, etc.)
+    const headerText = await header.textContent();
+    expect(headerText).toBeTruthy();
+    expect(headerText!.trim().length).toBeGreaterThan(0);
   });
 
-  test('no JavaScript errors on dashboard', async ({ adminPage }) => {
+  test('no critical JavaScript errors on dashboard', async ({ adminPage }) => {
     const errors: string[] = [];
     adminPage.on('console', (msg) => {
       if (msg.type() === 'error') errors.push(msg.text());
@@ -73,18 +61,19 @@ test.describe('Admin Dashboard', () => {
 
     await adminPage.goto(ADMIN_ROUTES.dashboard);
     await waitForAngularReady(adminPage);
-    await adminPage.waitForTimeout(2000);
 
-    // Filter benign errors
-    const realErrors = errors.filter(
+    // Filter out expected/benign errors
+    const criticalErrors = errors.filter(
       (e) =>
         !e.includes('favicon') &&
         !e.includes('Failed to load resource') &&
-        !e.includes('net::ERR'),
+        !e.includes('net::ERR') &&
+        !e.includes('third-party') &&
+        !e.includes('analytics') &&
+        !e.includes('hotjar'),
     );
 
-    // We allow some console errors from third-party scripts, but core app errors
-    // should be zero
-    expect(realErrors.length).toBeLessThanOrEqual(3);
+    // Zero critical errors allowed
+    expect(criticalErrors).toHaveLength(0);
   });
 });

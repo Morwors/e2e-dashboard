@@ -35,6 +35,11 @@ export class ApiClient {
     this.token = token;
   }
 
+  /** Get current token */
+  getToken(): string | null {
+    return this.token;
+  }
+
   private authHeaders(): Record<string, string> {
     if (!this.token) return {};
     return { Authorization: `Bearer ${this.token}` };
@@ -50,6 +55,14 @@ export class ApiClient {
       data,
       headers: { 'Content-Type': 'application/json' },
     });
+    return { status: res.status(), body: await res.json().catch(() => null) };
+  }
+
+  /** Verify email with token */
+  async verifyEmail(token: string) {
+    const res = await this.request.get(
+      `${this.baseURL}${API.verifyToken(token)}`,
+    );
     return { status: res.status(), body: await res.json().catch(() => null) };
   }
 

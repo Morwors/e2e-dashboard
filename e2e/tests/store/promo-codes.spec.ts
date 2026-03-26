@@ -1,45 +1,86 @@
 /**
  * Store Promo Codes Tests — Apply valid/invalid promo codes.
  *
- * Tests promo code input field, Apply button, success/error states.
+ * Every assertion is meaningful. No `expect(x || true)` patterns.
  */
 
 import { test, expect } from '@playwright/test';
-import { URLS } from '../../fixtures/test-data';
+import { ApiClient } from '../../helpers/api-client';
+import { URLS, testEventData, testTicketData, testPromoData, TEST_RUN_ID } from '../../fixtures/test-data';
 import { waitForAngularReady } from '../../helpers/wait-helpers';
 
 test.describe('Store Promo Codes', () => {
-  test('promo code input is present in cart section', async ({ page }) => {
-    // Load the store — if a cart section is visible, it should have a promo input
-    await page.goto(URLS.store);
+  let eventId: string;
+  let ticketId: string;
+  let promoCode: string;
+  let companyId: string;
+  let api: ApiClient;
+
+  test.beforeAll(async ({ request }) => {
+    api = new ApiClient(request, URLS.api);
+
+    // Create demo account + data
+    const demo = await api.createDemo();
+    expect(demo.status).toBe(200);
+
+    const companies = await api.getCompanies();
+    const companiesList =
+      companies.body?.data ||
+      companies.body?.companies ||
+      (Array.isArray(companies.body) ? companies.body : []);
+    expect(companiesList.length).toBeGreaterThan(0);
+    companyId = companiesList[0]._id;
+
+    // Create event + ticket + shop + promo
+    const eventResult = await api.createEvent(companyId, testEventData('promo'));
+    expect(eventResult.status).toBeLessThan(300);
+    eventId = eventResult.body?._id || eventResult.body?.insertedId;
+
+    const ticketResult = await api.createTicket(companyId, testTicketData(eventId, companyId));
+    expect(ticketResult.status).toBeLessThan(300);
+    ticketId = ticketResult.body?._id || ticketResult.body?.insertedId;
+
+    await api.createShop(companyId, {
+      eventId,
+      ticketIds: [ticketId],
+      name: `E2E Promo Store ${TEST_RUN_ID}`,
+    });
+
+    const promoData = testPromoData(eventId);
+    const promoResult = await api.createPromoCode(companyId, promoData);
+    expect(promoResult.status).toBeLessThan(300);
+    promoCode = promoData.code;
+  });
+
+  test('store loads with event data for promo testing', async ({ page }) => {
+    await page.goto(`${URLS.store}?storeUrl=${eventId}`);
     await waitForAngularReady(page);
-    await page.waitForTimeout(2000);
 
-    // The promo code input is inside the cart section which only shows when items are in cart
-    // Just verify the store loads
     const bodyText = await page.textContent('body');
-    expect(bodyText).toContain('TicketSeat');
+    expect(bodyText).toBeTruthy();
+    const hasTicketContent =
+      bodyText!.includes('Ticket') || bodyText!.includes('Select');
+    expect(hasTicketContent).toBe(true);
   });
 
-  test('promo code validation via API — valid code', async ({ request }) => {
-    // Test the promo code existence endpoint directly
+  test('promo code API validation — valid code returns success', async ({ request }) => {
     const res = await request.get(
-      `${URLS.api}/promo/exists?code=TESTCODE&eventId=000000000000000000000000`,
+      `${URLS.api}/promo/exists?code=${promoCode}&eventId=${eventId}`,
     );
+    expect(res.status()).toBe(200);
 
-    // The API should respond (even if the code doesn't exist)
-    expect(res.status()).toBeLessThan(500);
+    const body = await res.json();
+    expect(body).toBeTruthy();
+    // Valid promo should return discount info
+    expect(body.discount).toBe(10);
   });
 
-  test('promo code validation via API — nonexistent code returns error', async ({
-    request,
-  }) => {
+  test('promo code API validation — nonexistent code returns 404', async ({ request }) => {
     const res = await request.get(
-      `${URLS.api}/promo/exists?code=NONEXISTENT_CODE_12345&eventId=000000000000000000000000`,
+      `${URLS.api}/promo/exists?code=NONEXISTENT_CODE_12345&eventId=${eventId}`,
     );
 
-    // Should return 404 or a body indicating the code doesn't exist
-    const body = await res.json().catch(() => null);
-    expect(res.status() === 404 || body?.error || body === null || true).toBeTruthy();
+    // Nonexistent promo should return 404 or error body
+    expect(res.status()).toBeGreaterThanOrEqual(400);
   });
 });

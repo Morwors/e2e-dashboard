@@ -12,38 +12,35 @@ import { waitForAngularReady, waitForAngularNavigation } from '../../helpers/wai
 
 test.describe('Admin Auth — Login', () => {
   test.beforeEach(async ({ page }) => {
-    // Start each test on the login page with a clean session
     await page.goto(ADMIN_ROUTES.login);
     await waitForAngularReady(page);
   });
 
   test('login page displays correctly', async ({ page }) => {
-    // Heading "Sign in" should be visible
+    // Heading
     await expect(page.locator('h2')).toContainText('Sign in');
 
-    // Email input exists with correct placeholder
+    // Email input
     const emailInput = page.locator('#email');
     await expect(emailInput).toBeVisible();
     await expect(emailInput).toHaveAttribute('placeholder', 'you@example.com');
 
-    // Password input exists
+    // Password input
     const passwordInput = page.locator('#password');
     await expect(passwordInput).toBeVisible();
 
-    // "Remember me" checkbox
+    // Remember me checkbox
     const rememberMe = page.locator('input[type="checkbox"]');
     await expect(rememberMe).toBeVisible();
 
-    // Sign in button (disabled when form is empty)
+    // Sign in button (disabled when empty)
     const signInBtn = page.locator('button[type="submit"]');
     await expect(signInBtn).toBeVisible();
     await expect(signInBtn).toContainText('Sign in');
     await expect(signInBtn).toBeDisabled();
 
-    // "Forgot password?" link
+    // Navigation links
     await expect(page.locator('a[href*="forgot-password"]')).toBeVisible();
-
-    // "Create account" link
     await expect(page.locator('a[href*="register"]')).toContainText('Create account');
   });
 
@@ -52,18 +49,12 @@ test.describe('Admin Auth — Login', () => {
     const passwordInput = page.locator('#password');
     const signInBtn = page.locator('button[type="submit"]');
 
-    // Initially disabled
     await expect(signInBtn).toBeDisabled();
 
-    // Fill email
     await emailInput.fill('test@example.com');
-    // Still disabled (password missing)
     await expect(signInBtn).toBeDisabled();
 
-    // Fill password
     await passwordInput.fill('SomePassword123!');
-
-    // Now enabled
     await expect(signInBtn).toBeEnabled();
   });
 
@@ -82,53 +73,42 @@ test.describe('Admin Auth — Login', () => {
     await expect(errorBlock).toContainText(/sign in failed|invalid/i);
   });
 
-  test('login with valid demo account succeeds', async ({ page, request }) => {
-    // Create a demo account via API to get verified credentials
+  test('login with demo account succeeds', async ({ page, request }) => {
+    // Create a demo account via API
     const api = new ApiClient(request, URLS.api);
     const demo = await api.createDemo();
     expect(demo.status).toBe(200);
     expect(demo.body.token).toBeTruthy();
 
-    // Get user info to find email
-    const me = await api.me();
-    const demoEmail = me.body?.user?.email;
-    expect(demoEmail).toBeTruthy();
-
-    // Demo accounts don't have a known password, so we inject the token directly
-    // and verify the dashboard loads
+    // Inject token into localStorage (demo accounts have no known password)
     await page.evaluate((token: string) => {
-      localStorage.setItem('token', token);
+      localStorage.setItem('auth_token', token);
+      localStorage.setItem('auth_remember', 'true');
     }, demo.body.token);
 
     // Navigate to dashboard
     await page.goto(URLS.admin + '/dashboard');
-    await page.waitForTimeout(2000);
+    await waitForAngularReady(page);
 
-    // Check if we're on dashboard or company select (both mean auth succeeded)
+    // Should be on dashboard or company select — NOT login
     const url = page.url();
-    const authSucceeded =
-      url.includes('/dashboard') || url.includes('/company/select');
-    expect(authSucceeded).toBeTruthy();
+    expect(url).not.toContain('/auth/login');
+    const validDestination = url.includes('/dashboard') || url.includes('/company/select');
+    expect(validDestination).toBe(true);
   });
 
   test('shows validation errors for empty fields', async ({ page }) => {
     const emailInput = page.locator('#email');
     const passwordInput = page.locator('#password');
 
-    // Touch email and blur to trigger validation
+    // Touch and blur to trigger validation
     await emailInput.focus();
     await emailInput.blur();
     await passwordInput.focus();
     await passwordInput.blur();
 
-    // Wait for validation messages
-    await page.waitForTimeout(300);
-
-    // Check for "Email is required" or "Password is required"
-    const emailError = page.locator('text=Email is required');
-    const passwordError = page.locator('text=Password is required');
-    await expect(emailError).toBeVisible();
-    await expect(passwordError).toBeVisible();
+    await expect(page.locator('text=Email is required')).toBeVisible();
+    await expect(page.locator('text=Password is required')).toBeVisible();
   });
 
   test('shows email format validation error', async ({ page }) => {
@@ -137,9 +117,7 @@ test.describe('Admin Auth — Login', () => {
     await emailInput.fill('not-an-email');
     await emailInput.blur();
 
-    await page.waitForTimeout(300);
-    const emailError = page.locator('text=Enter a valid email address');
-    await expect(emailError).toBeVisible();
+    await expect(page.locator('text=Enter a valid email address')).toBeVisible();
   });
 
   test('"Create account" link navigates to register', async ({ page }) => {
@@ -164,10 +142,9 @@ test.describe('Admin Auth — Register', () => {
     await page.goto(ADMIN_ROUTES.register);
     await waitForAngularReady(page);
 
-    // Heading
     await expect(page.locator('h2')).toContainText('Create account');
 
-    // First name, Last name, Email, Phone, Password, Confirm Password
+    // All form fields must be visible
     await expect(page.locator('#firstName')).toBeVisible();
     await expect(page.locator('#lastName')).toBeVisible();
     await expect(page.locator('#email')).toBeVisible();
@@ -175,20 +152,20 @@ test.describe('Admin Auth — Register', () => {
     await expect(page.locator('#password')).toBeVisible();
     await expect(page.locator('#confirmPassword')).toBeVisible();
 
-    // Submit button
+    // Submit button disabled when empty
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toContainText('Create account');
-    await expect(submitBtn).toBeDisabled(); // empty form
+    await expect(submitBtn).toBeDisabled();
 
-    // Terms links
+    // Legal links
     await expect(page.locator('a[href*="terms"]')).toBeVisible();
     await expect(page.locator('a[href*="privacy"]')).toBeVisible();
 
-    // "Sign in" link
+    // Sign in link
     await expect(page.locator('a[href*="login"]')).toContainText('Sign in');
   });
 
-  test('can fill registration form and submit', async ({ page }) => {
+  test('can fill registration form and submit successfully', async ({ page }) => {
     await page.goto(ADMIN_ROUTES.register);
     await waitForAngularReady(page);
 
@@ -203,24 +180,15 @@ test.describe('Admin Auth — Register', () => {
 
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled();
-
     await submitBtn.click();
 
-    // Wait for response — either success message or error
-    await page.waitForTimeout(3000);
+    // Wait for response — should see success message or redirect to login
+    // We check for concrete outcomes, not "success OR error"
+    const successMsg = page.locator('text=/account created|check your email|verify/i');
+    const loginHeading = page.locator('h2:has-text("Sign in")');
 
-    // Success: "Account created" message appears
-    // OR redirect to login page
-    const successMsg = page.locator('text=Account created');
-    const loginPage = page.locator('h2:has-text("Sign in")');
-    const errorMsg = page.locator('.bg-red-50, .bg-red-900\\/20');
-
-    // One of these should be visible
-    const hasSuccess = await successMsg.isVisible().catch(() => false);
-    const hasLogin = await loginPage.isVisible().catch(() => false);
-    const hasError = await errorMsg.isVisible().catch(() => false);
-
-    expect(hasSuccess || hasLogin || hasError).toBeTruthy();
+    // Either success message or redirect to login (both mean registration worked)
+    await expect(successMsg.or(loginHeading)).toBeVisible({ timeout: 10_000 });
   });
 
   test('password mismatch shows validation error', async ({ page }) => {
@@ -231,10 +199,37 @@ test.describe('Admin Auth — Register', () => {
     await page.locator('#confirmPassword').fill('DifferentPassword!');
     await page.locator('#confirmPassword').blur();
 
-    await page.waitForTimeout(300);
+    await expect(page.locator("text=Passwords don't match")).toBeVisible();
+  });
 
-    const mismatchError = page.locator("text=Passwords don't match");
-    await expect(mismatchError).toBeVisible();
+  test('duplicate email shows error', async ({ page, request }) => {
+    // Register via API first
+    const api = new ApiClient(request, URLS.api);
+    const email = uniqueEmail('dup');
+    await api.register({
+      firstName: 'Dup',
+      lastName: 'Test',
+      email,
+      password: TEST_ADMIN.password,
+      phone: '+15559999999',
+    });
+
+    // Try same email via UI
+    await page.goto(ADMIN_ROUTES.register);
+    await waitForAngularReady(page);
+
+    await page.locator('#firstName').fill('Dup');
+    await page.locator('#lastName').fill('Test');
+    await page.locator('#email').fill(email);
+    await page.locator('#phone').fill('+15559999998');
+    await page.locator('#password').fill(TEST_ADMIN.password);
+    await page.locator('#confirmPassword').fill(TEST_ADMIN.password);
+
+    await page.locator('button[type="submit"]').click();
+
+    // Should show error about duplicate/existing email
+    const errorBlock = page.locator('.bg-red-50, .bg-red-900\\/20').first();
+    await expect(errorBlock).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -251,7 +246,7 @@ test.describe('Admin Auth — Forgot Password', () => {
     await expect(submitBtn).toBeDisabled();
   });
 
-  test('submitting email shows confirmation', async ({ page }) => {
+  test('submitting email shows confirmation message', async ({ page }) => {
     await page.goto(ADMIN_ROUTES.forgotPassword);
     await waitForAngularReady(page);
 
@@ -261,18 +256,9 @@ test.describe('Admin Auth — Forgot Password', () => {
     await expect(submitBtn).toBeEnabled();
     await submitBtn.click();
 
-    // Wait for response
-    await page.waitForTimeout(3000);
-
-    // Should show success or error (depends on whether email exists in DB)
-    const successMsg = page.locator('.bg-emerald-50, .bg-emerald-900\\/20');
-    const errorMsg = page.locator('.bg-red-50, .bg-red-900\\/20');
-
-    const hasSuccess = await successMsg.isVisible().catch(() => false);
-    const hasError = await errorMsg.isVisible().catch(() => false);
-
-    // One of these should appear
-    expect(hasSuccess || hasError).toBeTruthy();
+    // Should show a visible feedback message (success or error)
+    const feedbackMsg = page.locator('.bg-emerald-50, .bg-emerald-900\\/20, .bg-red-50, .bg-red-900\\/20').first();
+    await expect(feedbackMsg).toBeVisible({ timeout: 10_000 });
   });
 
   test('"Sign in" link navigates back to login', async ({ page }) => {
@@ -286,7 +272,7 @@ test.describe('Admin Auth — Forgot Password', () => {
   });
 });
 
-test.describe('Admin Auth — Logout', () => {
+test.describe('Admin Auth — Access Control', () => {
   test('unauthenticated user is redirected to login', async ({ page }) => {
     // Clear any stored tokens
     await page.goto(URLS.admin + '/auth/login');
@@ -294,10 +280,9 @@ test.describe('Admin Auth — Logout', () => {
 
     // Try to access a protected route
     await page.goto(URLS.admin + '/dashboard');
-    await page.waitForTimeout(2000);
+    await waitForAngularReady(page);
 
     // Should redirect to login
-    const url = page.url();
-    expect(url).toContain('/auth/login');
+    expect(page.url()).toContain('/auth/login');
   });
 });
