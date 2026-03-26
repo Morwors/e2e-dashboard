@@ -67,7 +67,10 @@ test.describe('Admin Permissions & Guards', () => {
   }) => {
     await page.goto(URLS.admin + '/auth/login');
     await page.evaluate(() => {
-      localStorage.setItem('token', 'invalid.jwt.token');
+      // Angular uses 'auth_token' as the storage key
+      localStorage.clear();
+      localStorage.setItem('auth_token', 'invalid.jwt.token');
+      localStorage.setItem('auth_remember', 'true');
     });
 
     await page.goto(URLS.admin + ADMIN_ROUTES.dashboard);
