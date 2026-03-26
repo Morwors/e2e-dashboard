@@ -11,6 +11,12 @@ export function uniqueEmail(prefix = 'e2e'): string {
   return `${prefix}-${TEST_RUN_ID}-${Math.random().toString(36).slice(2, 7)}@ticketseat-test.io`;
 }
 
+/** Generate a unique phone number for each test invocation */
+export function uniquePhone(): string {
+  const rand = Math.floor(Math.random() * 9000000) + 1000000;
+  return `+1555${rand}`;
+}
+
 // ── URLs ─────────────────────────────────────────────────────────────
 export const URLS = {
   landing: process.env.BASE_URL_LANDING || 'https://landing-dev.ticketseat.io',
@@ -55,6 +61,14 @@ export function testEventData(suffix = '') {
 
 // ── Test Ticket ──────────────────────────────────────────────────────
 export function testTicketData(eventId: string, companyId: string) {
+  // Ticket availableDates must not be after the event's end date
+  // Use the same dates as the event (1 month from now)
+  const futureDate1 = new Date();
+  futureDate1.setMonth(futureDate1.getMonth() + 1);
+  const futureDate2 = new Date();
+  futureDate2.setMonth(futureDate2.getMonth() + 1);
+  futureDate2.setDate(futureDate2.getDate() + 1);
+
   return {
     name: `E2E GA Ticket ${TEST_RUN_ID}`,
     description: 'General Admission test ticket',
@@ -63,7 +77,7 @@ export function testTicketData(eventId: string, companyId: string) {
     isPublic: true,
     eventId,
     companyId,
-    availableDates: [],
+    availableDates: [futureDate1.toISOString(), futureDate2.toISOString()],
   };
 }
 
@@ -143,7 +157,8 @@ export const API = {
   eventRoom: (id: string) => `/event/${id}/room`,
 
   // Ticket
-  ticket: '/ticket',
+  ticketCreate: '/ticket/create',
+  ticketList: '/ticket',
   ticketById: (id: string) => `/ticket/${id}`,
 
   // Shop

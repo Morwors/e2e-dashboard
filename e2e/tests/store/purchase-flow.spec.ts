@@ -64,7 +64,7 @@ test.describe.serial('Store Purchase Flow', () => {
   });
 
   test('store page loads with event details', async ({ page }) => {
-    await page.goto(`${URLS.store}?storeUrl=${eventId}`);
+    await page.goto(`${URLS.store}?storeUrl=${shopId}`);
     await waitForAngularReady(page);
 
     // Must show event/ticket content
@@ -79,7 +79,7 @@ test.describe.serial('Store Purchase Flow', () => {
   });
 
   test('store shows ticket cards with names and prices', async ({ page }) => {
-    await page.goto(`${URLS.store}?storeUrl=${eventId}`);
+    await page.goto(`${URLS.store}?storeUrl=${shopId}`);
     await waitForAngularReady(page);
 
     // Look for ticket name or GA text
@@ -88,7 +88,7 @@ test.describe.serial('Store Purchase Flow', () => {
   });
 
   test('clicking ticket navigates to ticket selection', async ({ page }) => {
-    await page.goto(`${URLS.store}?storeUrl=${eventId}`);
+    await page.goto(`${URLS.store}?storeUrl=${shopId}`);
     await waitForAngularReady(page);
 
     // Find and click a select/buy button

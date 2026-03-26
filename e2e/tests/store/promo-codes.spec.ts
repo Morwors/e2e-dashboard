@@ -12,6 +12,7 @@ import { waitForAngularReady } from '../../helpers/wait-helpers';
 // Shared state
 let eventId: string;
 let ticketId: string;
+let shopId: string;
 let promoCode: string;
 let companyId: string;
 
@@ -45,6 +46,8 @@ test.describe.serial('Store Promo Codes', () => {
       eventId,
       ticketIds: [ticketId],
       name: `E2E Promo Store ${TEST_RUN_ID}`,
+    }).then(res => {
+      shopId = res.body?._id || res.body?.insertedId;
     });
 
     const promoData = testPromoData(eventId);
@@ -56,7 +59,7 @@ test.describe.serial('Store Promo Codes', () => {
   });
 
   test('store loads with event data for promo testing', async ({ page }) => {
-    await page.goto(`${URLS.store}?storeUrl=${eventId}`);
+    await page.goto(`${URLS.store}?storeUrl=${shopId}`);
     await waitForAngularReady(page);
 
     const bodyText = await page.textContent('body');

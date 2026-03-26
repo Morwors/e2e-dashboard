@@ -25,6 +25,7 @@ import {
   URLS,
   ADMIN_ROUTES,
   uniqueEmail,
+  uniquePhone,
   TEST_ADMIN,
   testEventData,
   testTicketData,
@@ -55,12 +56,13 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     await expect(page.locator('h2')).toContainText('Create account');
 
     const email = uniqueEmail('journey');
+    const phone = uniquePhone();
 
     // Fill all fields
     await page.locator('#firstName').fill('Journey');
     await page.locator('#lastName').fill('Tester');
     await page.locator('#email').fill(email);
-    await page.locator('#phone').fill('+15550001234');
+    await page.locator('#phone').fill(phone);
     await page.locator('#password').fill(TEST_ADMIN.password);
     await page.locator('#confirmPassword').fill(TEST_ADMIN.password);
 
@@ -69,11 +71,18 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     await expect(submitBtn).toBeEnabled();
     await submitBtn.click();
 
-    // Wait for the response — should see success message or redirect to login
-    const successMsg = page.locator('text=/account created|check your email|verify|success/i');
-    const loginHeading = page.locator('h2:has-text("Sign in")');
+    // Wait for response — success means green banner, failure means red banner
+    const successBanner = page.locator('.bg-emerald-50, .bg-emerald-900\\/20').first();
+    const errorBanner = page.locator('.bg-red-50, .bg-red-900\\/20').first();
 
-    await expect(successMsg.or(loginHeading)).toBeVisible({ timeout: 15_000 });
+    await expect(successBanner.or(errorBanner)).toBeVisible({ timeout: 15_000 });
+
+    // Registration with unique data should succeed
+    const hasError = await errorBanner.isVisible().catch(() => false);
+    if (hasError) {
+      const errorText = await errorBanner.textContent();
+      expect(hasError, `Registration failed unexpectedly: ${errorText}`).toBe(false);
+    }
 
     console.log('[journey] ✅ Registration form submitted successfully');
   });
@@ -135,11 +144,9 @@ test.describe.serial('Full User Journey — End-to-End', () => {
   test('4. Select company', async ({ request }) => {
     expect(token).toBeTruthy();
 
-    // Ensure API client has token
-    if (!api) {
-      api = new ApiClient(request, URLS.api);
-      api.setToken(token);
-    }
+    // Recreate API client with current test's request context + saved token
+    api = new ApiClient(request, URLS.api);
+    api.setToken(token);
 
     const companies = await api.getCompanies();
     expect(companies.status).toBe(200);
@@ -203,10 +210,8 @@ test.describe.serial('Full User Journey — End-to-End', () => {
   test('6. Create event', async ({ request }) => {
     expect(companyId).toBeTruthy();
 
-    if (!api) {
-      api = new ApiClient(request, URLS.api);
-      api.setToken(token);
-    }
+    api = new ApiClient(request, URLS.api);
+    api.setToken(token);
 
     const eventData = testEventData('journey');
     const result = await api.createEvent(companyId, eventData);
@@ -229,10 +234,8 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     expect(eventId).toBeTruthy();
     expect(companyId).toBeTruthy();
 
-    if (!api) {
-      api = new ApiClient(request, URLS.api);
-      api.setToken(token);
-    }
+    api = new ApiClient(request, URLS.api);
+    api.setToken(token);
 
     const ticketData = testTicketData(eventId, companyId);
     const result = await api.createTicket(companyId, ticketData);
@@ -257,10 +260,8 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     expect(ticketId).toBeTruthy();
     expect(companyId).toBeTruthy();
 
-    if (!api) {
-      api = new ApiClient(request, URLS.api);
-      api.setToken(token);
-    }
+    api = new ApiClient(request, URLS.api);
+    api.setToken(token);
 
     const shopResult = await api.createShop(companyId, {
       eventId,
@@ -286,7 +287,7 @@ test.describe.serial('Full User Journey — End-to-End', () => {
   test('9. Store shows event details', async ({ page }) => {
     expect(eventId).toBeTruthy();
 
-    await page.goto(`${URLS.store}?storeUrl=${eventId}`);
+    await page.goto(`${URLS.store}?storeUrl=${shopId}`);
     await waitForAngularReady(page);
 
     // Store must load and show event/ticket content
@@ -307,7 +308,7 @@ test.describe.serial('Full User Journey — End-to-End', () => {
   test('10. Add tickets to cart in store', async ({ page }) => {
     expect(eventId).toBeTruthy();
 
-    await page.goto(`${URLS.store}?storeUrl=${eventId}`);
+    await page.goto(`${URLS.store}?storeUrl=${shopId}`);
     await waitForAngularReady(page);
 
     // Find the ticket card / select button
@@ -331,10 +332,8 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     expect(eventId).toBeTruthy();
     expect(companyId).toBeTruthy();
 
-    if (!api) {
-      api = new ApiClient(request, URLS.api);
-      api.setToken(token);
-    }
+    api = new ApiClient(request, URLS.api);
+    api.setToken(token);
 
     const promoData = testPromoData(eventId);
     const result = await api.createPromoCode(companyId, promoData);
@@ -381,10 +380,8 @@ test.describe.serial('Full User Journey — End-to-End', () => {
     expect(eventId).toBeTruthy();
     expect(ticketId).toBeTruthy();
 
-    if (!api) {
-      api = new ApiClient(request, URLS.api);
-      api.setToken(token);
-    }
+    api = new ApiClient(request, URLS.api);
+    api.setToken(token);
 
     const orderResult = await api.createOrder({
       eventId,
@@ -414,10 +411,8 @@ test.describe.serial('Full User Journey — End-to-End', () => {
   test('14. Cleanup — delete test event', async ({ request }) => {
     if (!eventId || !companyId) return;
 
-    if (!api) {
-      api = new ApiClient(request, URLS.api);
-      api.setToken(token);
-    }
+    api = new ApiClient(request, URLS.api);
+    api.setToken(token);
 
     const deleteResult = await api.deleteEvent(eventId, companyId);
     expect(deleteResult.status).toBeLessThan(500);

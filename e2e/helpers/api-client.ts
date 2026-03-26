@@ -197,7 +197,7 @@ export class ApiClient {
 
   // ── Ticket ───────────────────────────────────────────────────────
 
-  /** Create ticket type for an event */
+  /** Create ticket type for an event (multipart form-data — backend uses fastify multipart) */
   async createTicket(
     companyId: string,
     data: {
@@ -210,11 +210,37 @@ export class ApiClient {
       availableDates?: string[];
     },
   ) {
+    // Backend ticket/create expects multipart/form-data (supports file upload)
+    const formData = new FormData();
+    formData.append('name', data.name);
+    formData.append('description', data.description || '');
+    formData.append('price', String(data.price));
+    formData.append('capacity', String(data.capacity));
+    formData.append('eventId', data.eventId);
+    formData.append('companyId', companyId);
+    formData.append('publicAvailability', data.isPublic !== false ? 'true' : 'false');
+    formData.append('VAT', '0');
+    formData.append('features', JSON.stringify([]));
+    // availableDates must be JSON string; use event dates if not provided
+    formData.append('availableDates', JSON.stringify(data.availableDates || []));
+
+    // Use fetch directly since Playwright's request API handles FormData
     const res = await this.request.post(
-      `${this.baseURL}${API.ticket}?companyId=${companyId}`,
+      `${this.baseURL}${API.ticketCreate}?companyId=${companyId}`,
       {
-        data,
-        headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+        multipart: {
+          name: data.name,
+          description: data.description || '',
+          price: String(data.price),
+          capacity: String(data.capacity),
+          eventId: data.eventId,
+          companyId,
+          publicAvailability: data.isPublic !== false ? 'true' : 'false',
+          VAT: '0',
+          features: JSON.stringify([]),
+          availableDates: JSON.stringify(data.availableDates || []),
+        },
+        headers: this.authHeaders(),
       },
     );
     return { status: res.status(), body: await res.json().catch(() => null) };
@@ -230,7 +256,7 @@ export class ApiClient {
 
   /** List tickets for company */
   async getTickets(companyId: string, eventId?: string, page = 1, limit = 20) {
-    let url = `${this.baseURL}${API.ticket}?companyId=${companyId}&page=${page}&limit=${limit}`;
+    let url = `${this.baseURL}${API.ticketList}?companyId=${companyId}&page=${page}&limit=${limit}`;
     if (eventId) url += `&eventId=${eventId}`;
     const res = await this.request.get(url, {
       headers: this.authHeaders(),

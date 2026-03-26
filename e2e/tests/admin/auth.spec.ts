@@ -7,7 +7,7 @@
 
 import { test, expect } from '@playwright/test';
 import { ApiClient } from '../../helpers/api-client';
-import { uniqueEmail, TEST_ADMIN, URLS, ADMIN_ROUTES } from '../../fixtures/test-data';
+import { uniqueEmail, uniquePhone, TEST_ADMIN, URLS, ADMIN_ROUTES } from '../../fixtures/test-data';
 import { waitForAngularReady, waitForAngularNavigation } from '../../helpers/wait-helpers';
 
 test.describe('Admin Auth — Login', () => {
@@ -170,11 +170,12 @@ test.describe('Admin Auth — Register', () => {
     await waitForAngularReady(page);
 
     const email = uniqueEmail('reg');
+    const phone = uniquePhone();
 
     await page.locator('#firstName').fill('Test');
     await page.locator('#lastName').fill('User');
     await page.locator('#email').fill(email);
-    await page.locator('#phone').fill('+15551234567');
+    await page.locator('#phone').fill(phone);
     await page.locator('#password').fill(TEST_ADMIN.password);
     await page.locator('#confirmPassword').fill(TEST_ADMIN.password);
 
@@ -182,13 +183,20 @@ test.describe('Admin Auth — Register', () => {
     await expect(submitBtn).toBeEnabled();
     await submitBtn.click();
 
-    // Wait for response — should see success message or redirect to login
-    // We check for concrete outcomes, not "success OR error"
-    const successMsg = page.locator('text=/account created|check your email|verify/i');
-    const loginHeading = page.locator('h2:has-text("Sign in")');
+    // Wait for response — success means redirect to login page or a success/verify message
+    // Failure means error banner (Registration failed / Email or phone already exists)
+    const successBanner = page.locator('.bg-emerald-50, .bg-emerald-900\\/20').first();
+    const errorBanner = page.locator('.bg-red-50, .bg-red-900\\/20').first();
 
-    // Either success message or redirect to login (both mean registration worked)
-    await expect(successMsg.or(loginHeading)).toBeVisible({ timeout: 10_000 });
+    // Wait for either outcome
+    await expect(successBanner.or(errorBanner)).toBeVisible({ timeout: 15_000 });
+
+    // If error banner appeared, the test should fail — registration should succeed with unique data
+    const hasError = await errorBanner.isVisible().catch(() => false);
+    if (hasError) {
+      const errorText = await errorBanner.textContent();
+      expect(hasError, `Registration failed unexpectedly: ${errorText}`).toBe(false);
+    }
   });
 
   test('password mismatch shows validation error', async ({ page }) => {
@@ -206,12 +214,13 @@ test.describe('Admin Auth — Register', () => {
     // Register via API first
     const api = new ApiClient(request, URLS.api);
     const email = uniqueEmail('dup');
+    const phone = uniquePhone();
     await api.register({
       firstName: 'Dup',
       lastName: 'Test',
       email,
       password: TEST_ADMIN.password,
-      phone: '+15559999999',
+      phone,
     });
 
     // Try same email via UI
@@ -221,7 +230,7 @@ test.describe('Admin Auth — Register', () => {
     await page.locator('#firstName').fill('Dup');
     await page.locator('#lastName').fill('Test');
     await page.locator('#email').fill(email);
-    await page.locator('#phone').fill('+15559999998');
+    await page.locator('#phone').fill(uniquePhone());
     await page.locator('#password').fill(TEST_ADMIN.password);
     await page.locator('#confirmPassword').fill(TEST_ADMIN.password);
 
