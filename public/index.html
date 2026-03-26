@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TicketSeat — E2E Dashboard</title>
+
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: '#111111',
+            card: '#161616',
+            border: '#262626',
+            pass: '#22c55e',
+            fail: '#ef4444',
+            warn: '#eab308',
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Google Fonts: Inter + JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body class="bg-[#0a0a0a] text-gray-100 font-sans min-h-screen antialiased">
+
+  <!-- ─── Header ───────────────────────────────────────────────────── -->
+  <header class="border-b border-border sticky top-0 z-50 bg-[#0a0a0a]/80 backdrop-blur-lg">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-pass to-emerald-700 flex items-center justify-center">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <h1 class="text-lg font-semibold tracking-tight">
+          TicketSeat <span class="text-gray-500 font-normal">E2E Dashboard</span>
+        </h1>
+      </div>
+
+      <button
+        id="btn-run"
+        onclick="triggerRun()"
+        class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-pass/10 text-pass border border-pass/20 text-sm font-medium hover:bg-pass/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <!-- Play icon (shown when idle) -->
+        <svg id="icon-play" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/>
+        </svg>
+        <!-- Spinner (shown when running) -->
+        <svg id="icon-spinner" class="w-4 h-4 animate-spin hidden" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <span id="btn-run-text">Run Tests</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ─── Main ─────────────────────────────────────────────────────── -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+
+    <!-- Stats Bar -->
+    <section id="stats" class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Total Runs -->
+      <div class="bg-card border border-border rounded-xl p-5">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Total Runs</p>
+        <p id="stat-total" class="text-3xl font-bold font-mono">—</p>
+      </div>
+      <!-- Avg Pass Rate -->
+      <div class="bg-card border border-border rounded-xl p-5">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Avg Pass Rate</p>
+        <p id="stat-rate" class="text-3xl font-bold font-mono">—</p>
+      </div>
+      <!-- Last Run -->
+      <div class="bg-card border border-border rounded-xl p-5">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Last Run</p>
+        <p id="stat-last" class="text-xl font-semibold">—</p>
+      </div>
+      <!-- Status -->
+      <div class="bg-card border border-border rounded-xl p-5">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Status</p>
+        <div class="flex items-center gap-2 mt-1">
+          <span id="status-dot" class="relative flex h-3 w-3">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-pass opacity-75 hidden" id="status-ping"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-pass" id="status-dot-inner"></span>
+          </span>
+          <span id="stat-status" class="text-xl font-semibold capitalize">Idle</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Trend Chart (simple SVG sparkline) -->
+    <section class="bg-card border border-border rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <p class="text-sm text-gray-400 font-medium">Pass Rate Trend (last 20 runs)</p>
+        <div class="flex items-center gap-4 text-xs text-gray-500">
+          <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-pass inline-block"></span> Passed</span>
+          <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-fail inline-block"></span> Failed</span>
+        </div>
+      </div>
+      <div id="chart-container" class="h-32 w-full overflow-hidden">
+        <svg id="trend-chart" class="w-full h-full" preserveAspectRatio="none"></svg>
+      </div>
+    </section>
+
+    <!-- Run History Table -->
+    <section>
+      <h2 class="text-sm text-gray-400 font-medium mb-4">Run History</h2>
+
+      <!-- Empty state -->
+      <div id="empty-state" class="hidden bg-card border border-border rounded-xl p-12 text-center">
+        <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-border flex items-center justify-center">
+          <svg class="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>
+          </svg>
+        </div>
+        <p class="text-gray-400 text-lg font-medium">No test runs yet</p>
+        <p class="text-gray-600 text-sm mt-1">Click "Run Tests" to start your first E2E test run</p>
+      </div>
+
+      <!-- Table (desktop) -->
+      <div id="table-wrap" class="hidden">
+        <div class="overflow-x-auto rounded-xl border border-border">
+          <table class="w-full text-sm">
+            <thead class="bg-card text-gray-500 text-xs uppercase tracking-wider">
+              <tr>
+                <th class="px-4 py-3 text-left w-10">Status</th>
+                <th class="px-4 py-3 text-left">Run ID</th>
+                <th class="px-4 py-3 text-left">Date / Time</th>
+                <th class="px-4 py-3 text-right">Duration</th>
+                <th class="px-4 py-3 text-right font-mono">Passed</th>
+                <th class="px-4 py-3 text-right font-mono">Failed</th>
+                <th class="px-4 py-3 text-right font-mono">Skipped</th>
+                <th class="px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="runs-tbody" class="divide-y divide-border">
+              <!-- Rows injected by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Mobile cards -->
+      <div id="mobile-cards" class="hidden sm:hidden space-y-3"></div>
+    </section>
+  </main>
+
+  <!-- ─── Footer ───────────────────────────────────────────────────── -->
+  <footer class="border-t border-border mt-16 py-6 text-center text-xs text-gray-600">
+    TicketSeat E2E Dashboard &middot; Powered by Playwright
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

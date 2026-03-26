@@ -1,0 +1,88 @@
+/* ── TicketSeat E2E Dashboard — Extra Styles ─────────────────────────
+   Tailwind handles most styling via CDN.  This file adds small
+   custom touches that are easier in plain CSS.
+────────────────────────────────────────────────────────────────────── */
+
+/* Smooth scrollbar on WebKit */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+/* Table row hover */
+#runs-tbody tr {
+  transition: background-color 150ms ease;
+}
+#runs-tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* Status pill base */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  line-height: 1.25rem;
+}
+.pill-passed  { background: rgba(34,197,94,0.12); color: #22c55e; }
+.pill-failed  { background: rgba(239,68,68,0.12); color: #ef4444; }
+.pill-running { background: rgba(234,179,8,0.12);  color: #eab308; }
+.pill-error   { background: rgba(239,68,68,0.12); color: #ef4444; }
+
+/* Button: view report */
+.btn-report {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #a1a1aa;
+  border: 1px solid #262626;
+  background: transparent;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.btn-report:hover {
+  background: rgba(255,255,255,0.05);
+  color: #e4e4e7;
+  border-color: #3f3f46;
+}
+
+/* Trend chart */
+#trend-chart .line-pass {
+  fill: none;
+  stroke: #22c55e;
+  stroke-width: 2;
+}
+#trend-chart .area-pass {
+  fill: url(#grad-pass);
+}
+#trend-chart .line-fail {
+  fill: none;
+  stroke: #ef4444;
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
+/* Pulse dot for running status */
+@keyframes gentle-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.pulse-running {
+  animation: gentle-pulse 1.5s ease-in-out infinite;
+}
+
+/* Mobile card */
+.run-card {
+  background: #161616;
+  border: 1px solid #262626;
+  border-radius: 0.75rem;
+  padding: 1rem;
+}

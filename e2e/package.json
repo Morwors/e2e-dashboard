@@ -1,0 +1,25 @@
+{
+  "name": "ticketseat-e2e",
+  "version": "1.0.0",
+  "description": "End-to-end tests for TicketSeat.io platform (Admin, Store, Landing, API)",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:admin": "npx playwright test --project=admin",
+    "test:store": "npx playwright test --project=store",
+    "test:landing": "npx playwright test --project=landing",
+    "test:api": "npx playwright test --project=api",
+    "test:e2e": "npx playwright test --project=e2e",
+    "test:ui": "npx playwright test --ui",
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "npx playwright test --debug",
+    "report": "npx playwright show-report reports/html",
+    "setup": "npx playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "dotenv": "^16.6.1"
+  },
+  "author": "TicketSeat QA",
+  "license": "UNLICENSED",
+  "private": true
+}

@@ -1,0 +1,10 @@
+.git
+data/
+node_modules/
+e2e/node_modules/
+e2e/reports/
+e2e/test-results/
+e2e/auth/
+e2e/.git/
+*.md
+.gitignore
