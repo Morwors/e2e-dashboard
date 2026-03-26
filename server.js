@@ -148,9 +148,22 @@ app.post('/api/runs/trigger', (_req, res) => {
 
     try {
       // Try to parse JSON results from the reporter output
-      const resultsPath = path.join(__dirname, 'e2e', 'reports', 'results.json');
-      if (fs.existsSync(resultsPath)) {
-        const results = JSON.parse(fs.readFileSync(resultsPath, 'utf-8'));
+      // Check multiple locations — playwright config writes to reports/results.json
+      const possiblePaths = [
+        path.join(__dirname, 'e2e', 'reports', 'results.json'),
+        path.join(__dirname, 'e2e', 'test-results.json'),
+      ];
+      
+      let results = null;
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          results = JSON.parse(fs.readFileSync(p, 'utf-8'));
+          console.log(`Parsed results from ${p}`);
+          break;
+        }
+      }
+      
+      if (results) {
         const projects = {};
         let totalPassed = 0, totalFailed = 0, totalSkipped = 0;
 
@@ -179,6 +192,7 @@ app.post('/api/runs/trigger', (_req, res) => {
         patch.status = totalFailed > 0 ? 'failed' : 'passed';
       } else {
         // No results file — mark based on exit code
+        console.log('No results.json found. Checked:', possiblePaths.join(', '));
         patch.status = code === 0 ? 'passed' : 'failed';
         patch.total = { passed: 0, failed: 0, skipped: 0 };
       }
