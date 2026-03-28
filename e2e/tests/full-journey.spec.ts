@@ -805,26 +805,26 @@ test.describe.serial('Full User Journey — Login → Create → Buy → Refund 
   test('Step 8: Verify ticket purchase in admin', async () => {
     const page = adminPage;
 
-    // Navigate to event view/edit page
-    await page.goto(`${URLS.admin}/events/${eventId}/edit`);
+    // Navigate to event DETAILS page (not edit) — this is where issued tickets live
+    // Route: /events/:id (event-details component with app-issued-tickets-list)
+    await page.goto(`${URLS.admin}/events/${eventId}`);
     await waitForAngular(page);
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000); // Angular lazy-loads + fetches issued tickets
 
-    await screenshot(page, '08a-event-view');
+    await screenshot(page, '08a-event-details');
 
-    // Look for orders/issued tickets tab or section
-    const ordersTab = page.locator('button, a, [role="tab"]')
-      .filter({ hasText: /orders|issued|tickets|sales/i })
-      .first();
+    // The issued tickets list (app-issued-tickets-list) should be visible with at least one row
+    // Look for the purchased ticket's email in the table
+    const ticketRow = page.locator('text=aleksaton@gmail.com').first();
+    const hasTicketInUI = await ticketRow.isVisible({ timeout: 10_000 }).catch(() => false);
 
-    if (await ordersTab.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await ordersTab.click();
-      await page.waitForTimeout(2000);
+    if (hasTicketInUI) {
+      console.log('[step 8] ✅ Found purchased ticket in issued tickets list (UI)');
     }
 
-    await screenshot(page, '08b-orders-view');
+    await screenshot(page, '08b-issued-tickets');
 
-    // Verify via API that there are issued tickets / orders
+    // Also verify via API
     const token = await page.evaluate(() => localStorage.getItem('auth_token'));
     const company = await page.evaluate(() => localStorage.getItem('selected_company'));
     const companyId = company ? JSON.parse(company)?._id : null;
@@ -862,59 +862,65 @@ test.describe.serial('Full User Journey — Login → Create → Buy → Refund 
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // STEP 9: REFUND THE TICKET
+  // STEP 9: REFUND THE TICKET (via UI)
   // ═══════════════════════════════════════════════════════════════════
   test('Step 9: Refund the ticket', async () => {
     const page = adminPage;
 
-    // Navigate to event edit/orders page
-    if (!page.url().includes(`/events/${eventId}`)) {
-      await page.goto(`${URLS.admin}/events/${eventId}/edit`);
+    // Make sure we're on the event details page (where issued tickets are shown)
+    // Route: /events/:id — has app-issued-tickets-list with refund buttons
+    if (!page.url().includes(`/events/${eventId}`) || page.url().includes('/edit')) {
+      await page.goto(`${URLS.admin}/events/${eventId}`);
       await waitForAngular(page);
-      await page.waitForTimeout(3000);
-    }
-
-    // Try to find and click an orders/issued tickets tab
-    const ordersTab = page.locator('button, a, [role="tab"]')
-      .filter({ hasText: /orders|issued|tickets|sales/i })
-      .first();
-
-    if (await ordersTab.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await ordersTab.click();
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(5000);
     }
 
     await screenshot(page, '09a-before-refund');
 
-    // Try UI refund first — look for a refund button on issued tickets
-    const refundBtn = page.locator('button')
-      .filter({ hasText: /refund/i })
-      .first();
+    // Find the refund button on the issued ticket row
+    // The refund button has title="Refund" and is a red button with an arrow icon
+    // On desktop: it's in the table actions column
+    // On mobile: it's a button with text "Refund" or "Cancel"
+    const refundBtn = page.locator('button[title="Refund"]').first();
+    const refundTextBtn = page.locator('button').filter({ hasText: /^Refund$|^Cancel$/ }).first();
 
-    if (await refundBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    let refundClicked = false;
+
+    if (await refundBtn.isVisible({ timeout: 10_000 }).catch(() => false)) {
       await refundBtn.click();
-      await page.waitForTimeout(1000);
+      refundClicked = true;
+    } else if (await refundTextBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await refundTextBtn.click();
+      refundClicked = true;
+    }
 
-      // Confirm refund if there's a confirmation dialog
-      const confirmBtn = page.locator('button')
-        .filter({ hasText: /confirm|yes|refund|ok/i })
-        .first();
-      if (await confirmBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-        await confirmBtn.click();
-      }
+    if (refundClicked) {
+      // Wait for the refund confirmation modal to appear
+      // Modal has title "Confirm Order Refund" and button "Process Order Refund"
+      const confirmModal = page.locator('text=Confirm Order Refund');
+      await expect(confirmModal).toBeVisible({ timeout: 5_000 });
 
+      await screenshot(page, '09b-refund-modal');
+
+      // Click "Process Order Refund" button
+      const processRefundBtn = page.locator('button').filter({ hasText: /Process Order Refund/i }).first();
+      await expect(processRefundBtn).toBeVisible({ timeout: 5_000 });
+      await processRefundBtn.click();
+
+      // Wait for refund to process (button shows "Processing..." then modal closes)
+      await page.waitForTimeout(5000);
       await waitForNetworkSettled(page, 3000);
-      await screenshot(page, '09b-refund-done');
+
+      await screenshot(page, '09c-refund-done');
       console.log('[step 9] ✅ Refund completed via UI');
     } else {
-      // Fallback: refund via API
+      // Fallback: refund via API if UI button not found
       console.log('[step 9] Refund button not found in UI — trying API refund');
 
       const token = await page.evaluate(() => localStorage.getItem('auth_token'));
       const company = await page.evaluate(() => localStorage.getItem('selected_company'));
       const companyId = company ? JSON.parse(company)?._id : null;
 
-      // Get issued tickets
       const issuedRes = await page.request.get(
         `${URLS.api}/issuedTicket?companyId=${companyId}&eventId=${eventId}`,
         { headers: { Authorization: `Bearer ${token!}` } },
@@ -929,58 +935,90 @@ test.describe.serial('Full User Journey — Login → Create → Buy → Refund 
           const refundRes = await page.request.post(
             `${URLS.api}/payment/refund-ticket`,
             {
-              data: {
-                issuedTicketId: ticketToRefund._id,
-                companyId,
-              },
-              headers: {
-                Authorization: `Bearer ${token!}`,
-                'Content-Type': 'application/json',
-              },
+              data: { issuedTicketId: ticketToRefund._id, companyId },
+              headers: { Authorization: `Bearer ${token!}`, 'Content-Type': 'application/json' },
             },
           );
           console.log(`[step 9] API refund status: ${refundRes.status()}`);
           expect(refundRes.status()).toBeLessThan(500);
           console.log('[step 9] ✅ Refund completed via API');
-        } else {
-          console.log('[step 9] ⚠️ No issued tickets found to refund');
         }
       }
     }
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // STEP 10: DELETE THE EVENT
+  // STEP 10: DELETE THE EVENT (via UI)
   // ═══════════════════════════════════════════════════════════════════
   test('Step 10: Delete the event', async () => {
     const page = adminPage;
 
-    // Navigate to event edit page
-    await page.goto(`${URLS.admin}/events/${eventId}/edit`);
+    // Navigate to the events LIST page — this is where delete buttons are
+    // Route: /events (events-list component with delete button per event card)
+    await page.goto(`${URLS.admin}/events`);
     await waitForAngular(page);
     await page.waitForTimeout(3000);
 
-    await screenshot(page, '10a-before-delete');
+    await screenshot(page, '10a-events-list');
 
-    // Try UI deletion — look for a delete button
-    const deleteBtn = page.locator('button')
-      .filter({ hasText: /delete event|delete/i })
-      .first();
+    // Find the event card by its name and click the delete button (trash icon)
+    // The delete button has title="Delete event" on the event card
+    // Each event card contains the event name, so we locate the card first
+    const eventCard = page.locator(`text=${eventId}`).first();
+    let deleteClicked = false;
 
-    if (await deleteBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await deleteBtn.click();
-      await page.waitForTimeout(1000);
+    // Strategy 1: Find the delete button with title="Delete event" near our event
+    // The event cards have the event name in a heading, and the delete button in the overlay
+    // We need to hover over the card to reveal the action buttons
+    const allEventCards = page.locator('[class*="group"]').filter({ hasText: /E2E Journey Event/ });
+    
+    if (await allEventCards.first().isVisible({ timeout: 10_000 }).catch(() => false)) {
+      // Hover to reveal action buttons
+      await allEventCards.first().hover();
+      await page.waitForTimeout(500);
 
-      // Confirm deletion
-      const confirmBtn = page.locator('button')
-        .filter({ hasText: /confirm|yes|delete|ok/i })
-        .first();
-      if (await confirmBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-        await confirmBtn.click();
+      const deleteBtn = allEventCards.first().locator('button[title="Delete event"]');
+      if (await deleteBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await deleteBtn.click();
+        deleteClicked = true;
       }
+    }
+
+    if (!deleteClicked) {
+      // Strategy 2: Try finding any delete button for this event via the page
+      // Look for all delete buttons and find one associated with our E2E event
+      const allDeleteBtns = page.locator('button[title="Delete event"]');
+      const count = await allDeleteBtns.count();
+      
+      for (let i = 0; i < count; i++) {
+        // Check if this delete button is in a card that contains our event name
+        const parent = allDeleteBtns.nth(i).locator('xpath=ancestor::*[contains(@class,"group")]');
+        const text = await parent.textContent().catch(() => '');
+        if (text?.includes('E2E Journey Event')) {
+          await allDeleteBtns.nth(i).click();
+          deleteClicked = true;
+          break;
+        }
+      }
+    }
+
+    if (deleteClicked) {
+      // Wait for the delete confirmation dialog
+      // Dialog has title "Delete Event?" and button "Delete Event"
+      const confirmDialog = page.locator('text=Delete Event?');
+      await expect(confirmDialog).toBeVisible({ timeout: 5_000 });
+
+      await screenshot(page, '10b-delete-dialog');
+
+      // Click "Delete Event" confirmation button
+      const confirmDeleteBtn = page.locator('button').filter({ hasText: /^Delete Event$/ }).first();
+      await expect(confirmDeleteBtn).toBeVisible({ timeout: 5_000 });
+      await confirmDeleteBtn.click();
 
       await waitForNetworkSettled(page, 3000);
-      await screenshot(page, '10b-event-deleted');
+      await page.waitForTimeout(2000);
+
+      await screenshot(page, '10c-event-deleted');
       console.log('[step 10] ✅ Event deleted via UI');
     } else {
       // Fallback: delete via API
